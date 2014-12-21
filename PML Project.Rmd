@@ -1,0 +1,82 @@
+---
+title: "Practical Machine Learning Project"
+author: "Regis K"
+date: "December 21, 2014"
+output: html_document
+---
+
+First, install the necessary packages.
+
+```{r}
+library(caret)
+library(rattle)
+library(rpart.plot)
+library(randomForest)
+```
+
+Then import the training and validation csv files. When importing the training file, make sure empty cells and #DIV/0! are treated as NA values.
+
+```{r}
+training<-read.csv("pml-training.csv", na.strings = c("NA", "#DIV/0!", ""))
+validation<-read.csv("pml-testing.csv")
+```
+
+Since the first seven columns are related to record keeping, not sensor data, they are removed from both sets. Additionally, many columns consist almost entirely of NA values, these columns will be identified and removed when the proportion of NA values exceeds 95%. This cleaning is done for both the training and validation sets, then the sets are compared to make sure they contain the same 52 variables. The 53rd column of the training set is the outcome (classe) while the 53rd column of the validation set is the item ID.
+
+```{r}
+training<-training[,8:160]
+validation<-validation[,8:160]
+NAs<-vector()
+for (i in 1:153){NAs[i]<-(sum(is.na(training[,i])))/19622}
+delete_col<-which(NAs>=.95)
+training<-training[,-delete_col]
+validation<-validation[,-delete_col]
+all.equal(colnames(training[1:length(colnames(training))-1]), colnames(validation[1:length(colnames(validation))-1]))
+```
+
+Now, the cleaned data can be used for model prediction. The 20-item validation set will not be used until a model has been developed with acceptable accuracy. For now, the training set will be split with 75% in a train set and 25% in a test set.
+
+```{r}
+set.seed(1234)
+trainIndex = createDataPartition(training$classe, p = 0.75,list=FALSE)
+train = training[trainIndex,]
+test = training[-trainIndex,]
+```
+
+Since the outcome variable is categorical, not continuous, it makes more sense to use decision trees rather than regression for prediction. First, start with a simple tree.
+
+```{r}
+modFitA <-train(train$classe ~ ., method ="rpart", data = train)
+confusionMatrix(test$classe,predict(modFitA,test))
+```
+
+Since this accuracy rate on the test set is very low (49.5%), it will be tried again with cross-validation.
+
+```{r}
+modFitB <-train(train$classe ~ ., method ="rpart", data = train,
+                trControl = trainControl(method = "cv"))
+confusionMatrix(test$classe,predict(modFitB,test))
+```
+
+Again, the accuracy is very low. Now a new model type, the random forest, will be tried.
+```{r}
+modFitC <- randomForest(train$classe ~ ., data = train)
+confusionMatrix(test$classe,predict(modFitC,test))
+```
+
+Since this accuracy rate is much better (99.5%), this is the final model that will be used to generate 20 predictions from the validation set. 
+
+Running the same model a fourth time (modFitD) with new randomly sampled training and testing set providies a second estimation of the error rate for cross-validation purposes.
+```{r}
+set.seed(4321)
+trainIndex = createDataPartition(training$classe, p = 0.75,list=FALSE)
+train = training[trainIndex,]
+test = training[-trainIndex,]
+modFitD <- randomForest(train$classe ~ ., data = train)
+confusionMatrix(test$classe,predict(modFitD,test))
+```
+
+The error rate is equal to 1-Accuracy, so averaging the error rate for Models C and D gives an overall error rate of .0065 or 0.65%.
+
+The out of sample error rate is equal to the error rate when the model is applied to new data, in this case the validation set. Since all my submissions were correct, the out of sample error rate can be considered 0%. 
+
